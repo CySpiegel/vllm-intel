@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 
+import os
+
 import torch
 import torch.distributed as dist
 from torch.distributed import ProcessGroup
@@ -25,7 +27,19 @@ class XpuCommunicator(DeviceCommunicatorBase):
         super().__init__(
             cpu_group, device, device_group, unique_name, use_all2all=use_all2all
         )
-        self.ca_comm: None = None
+        self.ca_comm = None
+        if os.environ.get("VLLM_XPU_TRITON_ALLREDUCE") == "1" and self.world_size == 2:
+            try:
+                from .xpu_triton_all_reduce import OneShotAllReduce
+
+                self.ca_comm = OneShotAllReduce(self.device_group, self.device)
+                logger.info(
+                    "XPU Triton one-shot all-reduce enabled (TP=2, %s)",
+                    unique_name,
+                )
+            except Exception:
+                logger.exception("XPU Triton all-reduce init failed; using oneCCL")
+                self.ca_comm = None
         if self.use_all2all:
             if self.all2all_backend in ("naive", "allgather_reducescatter"):
                 from .all2all import AgRsAll2AllManager
@@ -46,6 +60,9 @@ class XpuCommunicator(DeviceCommunicatorBase):
                 logger.info("Using AgRs manager on XPU device.")
 
     def all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
+        ca = self.ca_comm
+        if ca is not None and ca.should_custom_ar(input_):
+            return ca.all_reduce(input_)
         output = input_.clone()
         dist.all_reduce(output, group=self.device_group)
         return output
