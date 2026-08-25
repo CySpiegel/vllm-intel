@@ -20,4 +20,9 @@ torchvision
 torchcodec >= 0.14 # Required for the torchcodec video decoding backend
 
 auto_round_lib==0.14.2
-vllm_xpu_kernels==0.1.13.2
+# vllm_xpu_kernels: built from source pending upstream release of the GDN
+# mixed-batch spec-decode fixes (fork branch xpu-gdn-mixed-batch; commits
+# 06e0d7f mixed-batch chaining, 2c86542 zeros-init, guard-band allocs).
+# Docker builds compile it from that branch. Last PyPI-only version: 0.1.13.2
+# (crashes under concurrent MTP serving on hybrid GDN models).
+vllm_xpu_kernels>=0.1.13.2
