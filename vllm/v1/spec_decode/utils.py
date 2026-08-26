@@ -164,13 +164,21 @@ def eagle_prepare_inputs_padded_kernel(
 
     valid_count = tl.load(valid_sampled_tokens_count_ptr + req_idx)
     num_rejected_tokens = num_draft_tokens + 1 - valid_count
+    # Clamps guard against a corrupted valid_count (e.g. a producer-kernel
+    # launch that never wrote its output buffer): the sampled index must stay
+    # inside this request's query span, or the downstream gather/scatter
+    # aborts device-side. Identity for well-formed inputs.
+    num_rejected_tokens = tl.minimum(
+        tl.maximum(num_rejected_tokens, 0), num_draft_tokens + 1
+    )
     num_rejected_tokens = tl.where(num_draft_tokens > 0, num_rejected_tokens, 0)
 
     # query_start_loc[req_idx + 1] is the start position of the next request,
     # which is one past the last token of this request.
+    q_first_tok_idx = tl.load(query_start_loc_gpu_ptr + req_idx)
     q_last_tok_idx = tl.load(query_start_loc_gpu_ptr + req_idx + 1) - 1
 
-    index_to_sample = q_last_tok_idx - num_rejected_tokens
+    index_to_sample = tl.maximum(q_last_tok_idx - num_rejected_tokens, q_first_tok_idx)
     tl.store(token_indices_to_sample_ptr + req_idx, index_to_sample)
     tl.store(num_rejected_tokens_gpu_ptr + req_idx, num_rejected_tokens)
 
@@ -215,8 +223,9 @@ def eagle_prepare_next_token_padded_kernel(
         row_ptr = sampled_token_ids_ptr + req_idx * stride_sampled_token_ids
         token_ids = tl.load(row_ptr + token_offs, mask=token_mask, other=-1)
 
-        # Rejected tokens are -1, valid tokens are in [0, vocab_size)
-        is_valid_mask = (token_ids != -1) & (token_ids < vocab_size) & token_mask
+        # Rejected tokens are -1, valid tokens are in [0, vocab_size); the
+        # lower bound also rejects negative garbage other than exactly -1.
+        is_valid_mask = (token_ids >= 0) & (token_ids < vocab_size) & token_mask
         valid_count = tl.sum(is_valid_mask)
 
         if valid_count > 0:

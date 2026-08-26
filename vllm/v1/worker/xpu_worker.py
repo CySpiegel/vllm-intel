@@ -92,6 +92,16 @@ class XPUWorker(Worker):
         os.environ["LOCAL_WORLD_SIZE"] = ENV_LOCAL_WORLD_SIZE
         os.environ["LOCAL_RANK"] = str(self.local_rank)
 
+        # Triton's on-disk kernel cache is not multi-process safe: concurrent
+        # first compiles across TP ranks can load a partially written entry
+        # and execute a corrupt binary. Give each rank its own cache dir.
+        triton_cache_root = os.environ.get(
+            "TRITON_CACHE_DIR", os.path.expanduser("~/.triton/cache")
+        )
+        os.environ["TRITON_CACHE_DIR"] = os.path.join(
+            triton_cache_root, f"rank{self.rank}"
+        )
+
         init_worker_distributed_environment(
             self.vllm_config,
             self.rank,

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import dataclasses
+import functools
+import os
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any, cast
 
@@ -66,6 +68,16 @@ from vllm.v1.worker.gpu_input_batch import CachedRequestState, InputBatch
 from vllm.v1.worker.utils import AttentionGroup
 
 logger = init_logger(__name__)
+
+
+@functools.cache
+def _sync_after_spec_prep_launch() -> bool:
+    """Env-gated diagnostic barrier for the XPU Triton-launch/ATen-consumer
+    ordering race around the eagle prepare kernels. Default off."""
+    return (
+        os.environ.get("VLLM_XPU_SYNC_AFTER_SPEC_PREP", "0") == "1"
+        and current_platform.is_xpu()
+    )
 
 
 class SpecDecodeBaseProposer:
@@ -1088,8 +1100,12 @@ class SpecDecodeBaseProposer:
         assert discard_request_mask.dtype == torch.bool
         assert backup_tokens_gpu.dtype == torch.int32
 
-        next_token_ids = torch.empty(batch_size, dtype=torch.int32, device=device)
-        valid_sampled_tokens_count = next_token_ids.new_empty(batch_size)
+        # Zero-init: these are written by a Triton kernel and consumed by ATen
+        # indexing ops. If the launch ever fails silently (observed on XPU
+        # around in-flight JIT compiles), zeros mean "nothing accepted, use
+        # the backup token" instead of uninitialized garbage indices.
+        next_token_ids = torch.zeros(batch_size, dtype=torch.int32, device=device)
+        valid_sampled_tokens_count = next_token_ids.new_zeros(batch_size)
 
         # Kernel grid: one program per request (row)
         grid = (batch_size,)
@@ -1108,6 +1124,8 @@ class SpecDecodeBaseProposer:
             sampled_token_ids.stride(0),
             BLOCK_SIZE_TOKENS=BLOCK_SIZE_TOKENS,
         )
+        if _sync_after_spec_prep_launch():
+            torch.xpu.synchronize()
 
         return next_token_ids, valid_sampled_tokens_count
 
@@ -1128,10 +1146,12 @@ class SpecDecodeBaseProposer:
         num_reqs = common_attn_metadata.num_reqs
         device = valid_sampled_tokens_count.device
 
-        token_indices_to_sample = torch.empty(
+        # Zero-init for the same reason as prepare_next_token_ids_padded:
+        # a silently-failed launch must not leave garbage scatter indices.
+        token_indices_to_sample = torch.zeros(
             (num_reqs,), dtype=torch.int32, device=device
         )
-        num_rejected_tokens_gpu = torch.empty(
+        num_rejected_tokens_gpu = torch.zeros(
             (num_reqs,), dtype=torch.int32, device=device
         )
 
@@ -1144,6 +1164,10 @@ class SpecDecodeBaseProposer:
             num_rejected_tokens_gpu,
             num_reqs,
         )
+        # Diagnostic barrier, env-gated (default off): blocking, so it
+        # intentionally violates this function's no-blocking contract.
+        if _sync_after_spec_prep_launch():
+            torch.xpu.synchronize()
 
         query_start_loc_cpu = common_attn_metadata.query_start_loc_cpu
         new_query_len_per_req = query_start_loc_cpu[1:] - query_start_loc_cpu[:-1]
@@ -1172,6 +1196,62 @@ class SpecDecodeBaseProposer:
             token_indices_to_sample,
             num_rejected_tokens_gpu,
         )
+
+    def warmup_padded_prep_kernels(self) -> None:
+        """Pre-compile the padded prepare Triton kernels so their first
+        compile never happens mid-inference, where the JIT stall widens the
+        XPU launch/consumer race window. Triton cache keys specialize on
+        integer value class (exactly-1 / generic / divisible-by-16), pointer
+        dtype, and pointer 16-byte alignment; cover every variant the runtime
+        can produce (int64 from the plain sampler's argmax, int32 from the
+        rejection sampler, slices that lose alignment)."""
+        vocab_size = self.vllm_config.model_config.get_vocab_size()
+        for batch_size in (1, 2, 16):
+            discard_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+            int32_zeros = torch.zeros(batch_size, dtype=torch.int32, device=self.device)
+            # num_tokens=1 is the engine's first post-startup step (no drafts
+            # proposed yet) and compiles a distinct BLOCK_SIZE_TOKENS=1 binary.
+            for num_tokens in (1, self.num_speculative_tokens + 1):
+                for ids_dtype in (torch.int32, torch.int64):
+                    backing = torch.full(
+                        (batch_size + 1, num_tokens),
+                        -1,
+                        dtype=ids_dtype,
+                        device=self.device,
+                    )
+                    for sampled_token_ids in (backing[:batch_size], backing[1:]):
+                        eagle_prepare_next_token_padded_kernel[(batch_size,)](
+                            sampled_token_ids,
+                            discard_mask,
+                            int32_zeros,
+                            torch.zeros_like(int32_zeros),
+                            torch.zeros_like(int32_zeros),
+                            vocab_size,
+                            num_tokens,
+                            batch_size,
+                            sampled_token_ids.stride(0),
+                            BLOCK_SIZE_TOKENS=next_power_of_2(num_tokens),
+                        )
+            num_tokens = self.num_speculative_tokens + 1
+            query_start_loc_backing = torch.arange(
+                -num_tokens,
+                (batch_size + 1) * num_tokens,
+                num_tokens,
+                dtype=torch.int32,
+                device=self.device,
+            )
+            for query_start_loc in (
+                query_start_loc_backing[1:],
+                query_start_loc_backing[:-1],
+            ):
+                eagle_prepare_inputs_padded_kernel[(batch_size,)](
+                    torch.zeros_like(int32_zeros),
+                    torch.zeros_like(int32_zeros),
+                    query_start_loc,
+                    torch.zeros_like(int32_zeros),
+                    torch.zeros_like(int32_zeros),
+                    batch_size,
+                )
 
     def prepare_inputs(
         self,

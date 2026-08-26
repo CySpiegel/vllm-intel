@@ -138,6 +138,19 @@ def kernel_warmup(worker: "Worker", *, process_local_only: bool = False):
 
     qwen_triton_warmup(worker.model_runner, worker.vllm_config.model_config)
 
+    # Eagle/MTP padded-prep kernels otherwise JIT on the first spec-decode
+    # step; a mid-inference compile stall widens the XPU launch/consumer race
+    # window around their uninitialized-until-written outputs.
+    drafter = getattr(worker.model_runner, "drafter", None)
+    speculative_config = worker.vllm_config.speculative_config
+    if (
+        drafter is not None
+        and hasattr(drafter, "warmup_padded_prep_kernels")
+        and speculative_config is not None
+        and not speculative_config.disable_padded_drafter_batch
+    ):
+        drafter.warmup_padded_prep_kernels()
+
     compilation_config = worker.vllm_config.compilation_config
     cudagraph_capture_sizes = list(compilation_config.cudagraph_capture_sizes or [])
 
