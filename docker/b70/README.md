@@ -5,6 +5,40 @@ Serving stack for 2x Intel Arc B70 (Battlemage, 32 GB each), built from
 [CySpiegel/vllm-xpu-kernels](https://github.com/CySpiegel/vllm-xpu-kernels).
 Not an official vLLM or Intel image.
 
+## What this image is for
+
+A drop-in replacement for `intel/vllm` on a workstation with two Arc B-series
+cards, aimed at one job: serving a strong ~27B open model (Qwen3.8-27B) locally,
+as fast as the hardware allows, through the standard OpenAI-compatible API — for
+coding assistants, agents, and chat clients that already speak that API. It
+ships the whole tuned stack (vLLM XPU fork, custom kernels, driver runtime,
+serving presets) so a `docker compose up` gets the validated configuration
+instead of a week of tuning.
+
+## Why I built it
+
+I run two Arc B70s and wanted local inference that is actually usable for
+interactive work. The stock `intel/vllm:0.21` image served Qwen3.8-27B at
+~14–16 tokens/s single-stream, and the fastest paths (speculative decoding on
+the Qwen3.5/3.8 GDN hybrid architecture, INT4 weights on the fast GEMM path)
+either crashed or were silently wrong on this hardware. Getting there meant
+fixing kernels, not flags:
+
+- the GDN spec-decode kernels corrupted output on mixed spec/non-spec batches
+  and wrote out of bounds on XE2 with non-contiguous token indices;
+- speculative-decode prep could load a mid-compile Triton kernel on one TP rank
+  and crash under a cold concurrent burst;
+- the INT4 AutoRound checkpoint only reached its speed on the GPTQ kernel path,
+  which needs a config-only rewrite the entrypoint now does for you;
+- the Ubuntu 26.04 stock driver drops elements in `torch.nonzero`, so the image
+  carries a newer compute runtime.
+
+Every change was A/B benchmarked and kept only if it measured faster; the
+result is ~3.5x the stock image single-stream and ~2.6x at 32 concurrent
+requests, with coding-eval quality tied to FP8. The upstream-worthy pieces are
+being contributed back to vLLM and vllm-xpu-kernels; this image is where they
+run today.
+
 ## What's inside
 
 - vLLM XPU build of the fork (`main`): fused QK-norm+RoPE Triton kernel on XPU,
