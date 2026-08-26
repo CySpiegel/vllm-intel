@@ -15,6 +15,14 @@ ships the whole tuned stack (vLLM XPU fork, custom kernels, driver runtime,
 serving presets) so a `docker compose up` gets the validated configuration
 instead of a week of tuning.
 
+The default preset serves my INT4 quantization of the model, published on
+Hugging Face as
+**[CySpiegel/Qwen3.8-27B-Int4-AutoRound](https://huggingface.co/CySpiegel/Qwen3.8-27B-Int4-AutoRound)**
+(19 GB, AutoRound W4A16, quality tied with FP8 on coding evals); the image
+downloads it on first start. The `fp8` preset serves the original
+[Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) with online FP8
+quantization.
+
 ## Why I built it
 
 I run two Arc B70s and wanted local inference that is actually usable for
@@ -65,6 +73,16 @@ run today.
 INT4 quality is statistically tied with FP8 (HumanEval 93.9 vs 92.7, HumanEval+
 89.6 vs 90.9, n=164). Weights: [CySpiegel/Qwen3.8-27B-Int4-AutoRound](https://huggingface.co/CySpiegel/Qwen3.8-27B-Int4-AutoRound).
 
+## Model weights
+
+| Preset | Checkpoint | Notes |
+| --- | --- | --- |
+| `int4-mtp`, `int4` | [CySpiegel/Qwen3.8-27B-Int4-AutoRound](https://huggingface.co/CySpiegel/Qwen3.8-27B-Int4-AutoRound) | my AutoRound INT4 export; recipe, evals, and the config-only GPTQ-path rewrite are documented on the model card |
+| `fp8` | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | BF16 original, quantized to FP8 at load |
+
+Set `MODEL` to either repo id (downloaded into the mounted HF cache on first
+start) or to a local directory under `/models`.
+
 ## Run
 
 Compose (recommended):
@@ -106,9 +124,11 @@ docker run --rm -it --privileged --device /dev/dri --ipc host --shm-size 16g -p 
   cyspiegel/vllm-xpu-b70:latest
 ```
 
-On first start with an AutoRound HF checkpoint the entrypoint derives the
-gptq-config variant (config rewrite + links, no tensor changes) into `/models`
-so the fast XPUwNa16 GEMM path is used; set `AUTO_GPTQ_VARIANT=0` to skip.
+On first start with the
+[CySpiegel/Qwen3.8-27B-Int4-AutoRound](https://huggingface.co/CySpiegel/Qwen3.8-27B-Int4-AutoRound)
+checkpoint (or any AutoRound export) the entrypoint derives the gptq-config
+variant (config rewrite + links, no tensor changes) into `/models` so the fast
+XPUwNa16 GEMM path is used; set `AUTO_GPTQ_VARIANT=0` to skip.
 
 ## Presets and knobs
 
