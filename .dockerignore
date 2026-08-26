@@ -36,3 +36,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 rust/target/
+
+# fork-local framework files and quant venv (never ship in images)
+.claude
+/.venv-quant

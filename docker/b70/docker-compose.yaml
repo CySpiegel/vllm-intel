@@ -1,0 +1,41 @@
+# cyspiegel/vllm-xpu-b70 — drop-in replacement for the intel/vllm compose.
+# Presets (PRESET env): int4-mtp (default) | int4 | fp8 | custom
+# See docker/b70/README.md for every knob.
+services:
+  vllm-b70:
+    image: ${VLLM_B70_IMAGE:-cyspiegel/vllm-xpu-b70:latest}
+    container_name: vllm-b70
+    restart: unless-stopped
+    privileged: true                 # oneCCL pidfd IPC exchange (set in-image) needs ptrace rights
+    ipc: host
+    shm_size: "16g"
+    devices:
+      - /dev/dri:/dev/dri
+    ports:
+      - "8000:8000"
+    volumes:
+      - /home/spiegel/models:/models
+      - /home/spiegel/.cache/huggingface:/root/.cache/huggingface
+      - vllm-b70-cache:/root/.cache/vllm      # torch.compile / AOT cache (~1 min per cold start)
+      - vllm-b70-triton:/root/.triton         # per-rank Triton JIT caches
+    environment:
+      - PRESET=${PRESET:-int4-mtp}
+      # MODEL: default = /models/Qwen3.8-27B-Int4-AutoRound/gptq-variant if it
+      # exists, else CySpiegel/Qwen3.8-27B-Int4-AutoRound (HF id, downloaded and
+      # auto-converted to the gptq-config variant on first start).
+      # The image already sets the validated env (FI_PROVIDER_PATH, TRITON arch,
+      # XPU graphs, CCL_ZE_IPC_EXCHANGE=pidfd); the entrypoint defaults FI_PROVIDER=tcp.
+      # Do NOT carry over the stock intel/vllm CCL_*/ZE_* block: in particular
+      # CCL_ENABLE_SYCL_KERNELS=0 selects oneCCL "sched" all-reduce, which cannot
+      # be recorded into XPU graphs and aborts graph capture on this stack.
+      - HF_HUB_OFFLINE=1               # drop if MODEL must be downloaded on first start
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 900s
+
+volumes:
+  vllm-b70-cache:
+  vllm-b70-triton:
