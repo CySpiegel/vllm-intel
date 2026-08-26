@@ -95,6 +95,17 @@ mkdir -p docker/b70/wheels && cp /path/to/vllm_xpu_kernels-*.whl docker/b70/whee
 docker build -f docker/b70/Dockerfile --build-arg KERNEL_WHEEL=<file>.whl -t cyspiegel/vllm-xpu-b70:latest .
 ```
 
+## Support and issues
+
+Bugs, questions, and feature requests for this image go to the GitHub issue tracker:
+**<https://github.com/CySpiegel/vllm-intel/issues>** (vLLM side, image, presets, entrypoint).
+Kernel-level problems (GDN / attention / GEMM on BMG):
+<https://github.com/CySpiegel/vllm-xpu-kernels/issues>.
+Please include the image tag (`docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' cyspiegel/vllm-xpu-b70:latest`),
+your `docker run`/compose config, and the container log around the failure.
+
+Source: <https://github.com/CySpiegel/vllm-intel> (this file lives at `docker/b70/README.md`).
+
 ## Licenses
 
 vLLM and vllm-xpu-kernels: Apache-2.0. Qwen weights: Apache-2.0 (Alibaba/Qwen).
