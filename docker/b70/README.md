@@ -70,6 +70,16 @@ run today.
 `int4-mtp` and `fp8` numbers above were measured inside this image on 2x Arc B70
 (`docker/b70/docker-compose.yaml`); `int4` is the bare-metal figure for the same stack.
 
+### Other models
+
+| Model (via `PRESET=int4`) | Single-stream | Batched (conc 32) | Notes |
+| --- | --- | --- | --- |
+| [Intel/gemma-4-31B-it-int4-AutoRound](https://huggingface.co/Intel/gemma-4-31B-it-int4-AutoRound) | 33 tok/s greedy (26 ms/token) | 148 tok/s | dense 31B; `-e MODEL=Intel/gemma-4-31B-it-int4-AutoRound -e SERVED_NAME=gemma-4-31b-int4 -e EXTRA_ARGS="--reasoning-parser gemma4 --tool-call-parser gemma4"` |
+
+Any AutoRound (`auto_round:auto_gptq`, sym) export is auto-converted to the GPTQ
+kernel path the same way; the `int4` presets carry Qwen parser defaults, so pass the
+model's parsers in `EXTRA_ARGS` (later flags win).
+
 INT4 quality is statistically tied with FP8 (HumanEval 93.9 vs 92.7, HumanEval+
 89.6 vs 90.9, n=164). Weights: [CySpiegel/Qwen3.8-27B-Int4-AutoRound](https://huggingface.co/CySpiegel/Qwen3.8-27B-Int4-AutoRound).
 

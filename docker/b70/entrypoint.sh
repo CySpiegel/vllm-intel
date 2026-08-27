@@ -100,6 +100,9 @@ case "$PRESET" in
         if [ ! -f "$DEST/quantize_config.json" ]; then
           echo "entrypoint: deriving gptq-config variant -> $DEST"
           python3 /opt/b70/make_gptq_variant.py "$MODEL_PATH" "$DEST"
+          # The container runs as root; hand the derived dir to the owner of
+          # its parent so the host user can manage/delete it.
+          chown -R --reference="$(dirname "$DEST")" "$DEST" 2>/dev/null || true
         fi
         MODEL_PATH=$DEST
       fi

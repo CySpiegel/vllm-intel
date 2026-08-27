@@ -31,10 +31,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # which containers do not have; pidfd needs ptrace rights (run --privileged).
 # Do NOT set CCL_ENABLE_SYCL_KERNELS=0 (stock intel/vllm compose): it selects an
 # all-reduce that cannot be recorded into XPU graphs and aborts graph capture.
+# VLLM_USE_V2_MODEL_RUNNER=0: the XPU stack is validated on the V1 model runner;
+# architectures that default to V2 (e.g. Gemma 4) hit an XPU-graph event error in
+# V2's structured-output warmup. Override with -e VLLM_USE_V2_MODEL_RUNNER=1.
 ENV FI_PROVIDER_PATH=/opt/venv/lib \
     TRITON_INTEL_DEVICE_ARCH=bmg \
     VLLM_XPU_ENABLE_XPU_GRAPH=1 \
     VLLM_WORKER_MULTIPROC_METHOD=spawn \
+    VLLM_USE_V2_MODEL_RUNNER=0 \
     CCL_ZE_IPC_EXCHANGE=pidfd
 
 COPY docker/b70/entrypoint.sh /entrypoint.sh

@@ -29,6 +29,30 @@ def safetensors_keys_dtypes(path: Path):
     return {k: v["dtype"] for k, v in header.items() if k != "__metadata__"}
 
 
+def block_suffix(module: str) -> str | None:
+    """'model.language_model.layers.5.self_attn.q_proj' -> 'self_attn.q_proj'."""
+    parts = module.split(".layers.")
+    if len(parts) < 2:
+        return None
+    rest = parts[-1].split(".", 1)
+    return rest[1] if len(rest) == 2 and rest[0].isdigit() else None
+
+
+def uniform_block_suffixes(
+    quant_modules: set[str], unquant_modules: set[str]
+) -> list[str]:
+    """Per-block suffixes that are quantized in every layer where they exist.
+
+    Returns [] when some suffix is quantized in one layer and kept in float in
+    another (vLLM's per-module scan is then the safer description).
+    """
+    quant = {s for m in quant_modules if (s := block_suffix(m))}
+    unquant = {s for m in unquant_modules if (s := block_suffix(m))}
+    if quant & unquant:
+        return []
+    return sorted(quant)
+
+
 def link_or_symlink(src: Path, dest: Path) -> None:
     """Hardlink when on the same filesystem, else absolute symlink (the HF
     cache and /models are usually different mounts inside a container)."""
@@ -74,8 +98,25 @@ def main(src: Path, dest: Path) -> int:
     quant_modules, unquant_modules = set(), set()
     for shard in dest.glob("*.safetensors"):
         for key, dtype in safetensors_keys_dtypes(shard).items():
-            module = key.rsplit(".", 1)[0]
-            (unquant_modules if dtype in UNQUANT_DTYPES else quant_modules).add(module)
+            module, leaf = key.rsplit(".", 1)
+            if leaf == "qweight":
+                quant_modules.add(module)
+            elif leaf == "weight" and dtype in UNQUANT_DTYPES:
+                unquant_modules.add(module)
+
+    # vLLM's GPTQ path otherwise derives modules_in_block_to_quantize by
+    # scanning the shards, which lists modules by full name. Architectures
+    # whose layers legitimately lack a fused shard (Gemma 4 full-attention
+    # layers have no v_proj; V is loaded from K) then fail the "all shards of
+    # a fused layer quantized" check. Emitting per-block suffixes makes the
+    # check uniform across layers.
+    suffixes = uniform_block_suffixes(quant_modules, unquant_modules)
+    if suffixes:
+        gptq_qc["modules_in_block_to_quantize"] = suffixes
+    else:
+        print(
+            "NOTE: mixed-precision suffixes found; leaving module list to vLLM's scan"
+        )
 
     bad = [m for m in quant_modules for p in EXCLUDED_PATTERNS if p in m]
     print(f"linked {linked} files -> {dest}")
