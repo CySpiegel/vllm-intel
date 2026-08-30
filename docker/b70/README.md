@@ -303,7 +303,7 @@ oneccl 2022.0.0.
    vllm serve <qwen-gptq-variant> --served-model-name Qwen3.8-27B-Int4 \
      --tensor-parallel-size 2 --attention-backend FLASH_ATTN \
      --max-model-len 262144 --max-num-seqs 8 --max-num-batched-tokens 8192 \
-     --gpu-memory-utilization 0.90 --no-enable-prefix-caching \
+     --gpu-memory-utilization 0.90 --enable-prefix-caching \
      --language-model-only --reasoning-parser qwen3 \
      --enable-auto-tool-choice --tool-call-parser qwen3_coder \
      --speculative-config '{"method":"mtp","num_speculative_tokens":1}' \
@@ -315,7 +315,7 @@ oneccl 2022.0.0.
    vllm serve <qwen-gptq-variant> --served-model-name Qwen3.8-27B-Int4 \
      --tensor-parallel-size 2 --attention-backend FLASH_ATTN \
      --max-model-len 262144 --max-num-seqs 8 --max-num-batched-tokens 8192 \
-     --gpu-memory-utilization 0.90 --no-enable-prefix-caching \
+     --gpu-memory-utilization 0.90 --enable-prefix-caching \
      --language-model-only --reasoning-parser qwen3 \
      --enable-auto-tool-choice --tool-call-parser qwen3_coder \
      --host 0.0.0.0 --port 8000
@@ -327,7 +327,7 @@ oneccl 2022.0.0.
      --quantization fp8 --served-model-name Qwen3.8-27B --tensor-parallel-size 2 \
      --attention-backend FLASH_ATTN --max-model-len 262144 --max-num-seqs 8 \
      --max-num-batched-tokens 8192 --gpu-memory-utilization 0.90 \
-     --no-enable-prefix-caching --language-model-only --reasoning-parser qwen3 \
+     --enable-prefix-caching --language-model-only --reasoning-parser qwen3 \
      --enable-auto-tool-choice --tool-call-parser qwen3_coder \
      --host 0.0.0.0 --port 8000
    ```
@@ -418,7 +418,7 @@ XPUwNa16 GEMM path is used; set `AUTO_GPTQ_VARIANT=0` to skip.
 `PRESET=int4-mtp` (default) | `int4` | `fp8` | `custom` (`vllm serve` passthrough).
 `MODEL`, `SERVED_NAME`, `PORT`, `HOST`, `TP`, `MAX_MODEL_LEN` (262144),
 `MAX_NUM_SEQS` (8), `MAX_NUM_BATCHED_TOKENS` (8192), `GPU_MEMORY_UTILIZATION`
-(0.90), `ENABLE_THINKING=0`, `PREFIX_CACHING=1`, `FI_PROVIDER` (tcp|shm),
+(0.90), `ENABLE_THINKING=0`, `PREFIX_CACHING=0` (default on), `FI_PROVIDER` (tcp|shm),
 `EXTRA_ARGS`, plus any positional `vllm serve` flags.
 `TRITON_INTEL_DEVICE_ARCH=bmg` is set in-image (mandatory for spawn workers).
 

@@ -131,7 +131,7 @@ ARGS=(
   --host "${HOST:-0.0.0.0}"
   --port "${PORT:-8000}"
 )
-[ "${PREFIX_CACHING:-0}" = "1" ] || ARGS+=(--no-enable-prefix-caching)
+[ "${PREFIX_CACHING:-1}" = "0" ] && ARGS+=(--no-enable-prefix-caching)
 [ "$PRESET" = "fp8" ] && ARGS+=(--quantization fp8)
 [ "$PRESET" = "int4-mtp" ] && ARGS+=(--speculative-config '{"method":"mtp","num_speculative_tokens":1}')
 [ "${ENABLE_THINKING:-1}" = "0" ] && ARGS+=(--default-chat-template-kwargs '{"enable_thinking":false}')
