@@ -73,8 +73,10 @@ same branch at TP=2 and within 1% on one card. Everything below was measured on 
 
 - compute-runtime 26.27 + IGC 2.38 in-image: fixes the torch.nonzero element-drop bug of
   the Ubuntu stock 26.05 driver (torch-xpu-ops #4396) regardless of host driver.
-- oneCCL pidfd IPC exchange (containers have no /dev/dri/by-path) -> `--privileged`
-  required; documented.
+- Runs unprivileged: no `--privileged`, no `--cap-add`. Docker's default seccomp profile
+  blocks oneCCL's pidfd IPC exchange (`pidfd_getfd` needs CAP_SYS_PTRACE), so oneCCL falls
+  back to drmfd, which only needs `/dev/dri/by-path` bind-mounted (read-only). Validated:
+  gate PASS, greedy 13.02 ms TPOT, batched 196.9 t/s — identical to the privileged runs.
 - Presets: int4-mtp (default), int4, fp8, custom; AutoRound->GPTQ auto-conversion; parsers
   per model.
 - FP8 preset: online per-tensor FP8 is the slowest single-stream option (~30 ms/token,
@@ -164,8 +166,8 @@ Notes:
 Docker run (from "Run" section below):
 
 ```bash
-docker run --rm -it --privileged --device /dev/dri --ipc host --shm-size 16g \
-  -p 8000:8000 \
+docker run --rm -it --device /dev/dri -v /dev/dri/by-path:/dev/dri/by-path:ro \
+  --ipc host --shm-size 16g -p 8000:8000 \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   -v /path/to/models:/models \
   -e MODEL=CySpiegel/Qwen3.8-27B-Int4-AutoRound \
@@ -284,6 +286,11 @@ oneccl 2022.0.0.
    - Triton cannot autodetect the arch in spawned workers
    - graphs are the biggest single win
    - offline avoids Hub round-trips
+   - no `CCL_ZE_IPC_EXCHANGE` and no elevated rights: oneCCL's pidfd IPC exchange works
+     between same-user worker processes at Ubuntu's default `kernel.yama.ptrace_scope=1`
+     (oneCCL sets `PR_SET_PTRACER` itself), so no sudo / `CAP_SYS_PTRACE`; if pidfd is ever
+     blocked it falls back to drmfd via `/dev/dri/by-path`. Membership in `render` and
+     `video` is the only requirement.
 
 7. **INT4 weights:** Any AutoRound export (`auto_round:auto_gptq`, sym) must be served
    through the GPTQ kernel path. Derive the variant once:
@@ -374,12 +381,12 @@ Compose (recommended):
 services:
   vllm-b70:
     image: cyspiegel/vllm-xpu-b70:latest
-    privileged: true      # oneCCL's pidfd IPC exchange (set in-image) needs ptrace rights
     ipc: host
     shm_size: "16g"
     devices: ["/dev/dri:/dev/dri"]
     ports: ["8000:8000"]
     volumes:
+      - /dev/dri/by-path:/dev/dri/by-path:ro   # oneCCL drmfd IPC exchange (no --privileged needed)
       - /path/to/models:/models
       - ~/.cache/huggingface:/root/.cache/huggingface
       - vllm-b70-cache:/root/.cache/vllm     # keeps torch.compile artifacts across restarts
@@ -401,7 +408,8 @@ and aborts graph capture on this stack.
 One-liner:
 
 ```bash
-docker run --rm -it --privileged --device /dev/dri --ipc host --shm-size 16g -p 8000:8000 \
+docker run --rm -it --device /dev/dri -v /dev/dri/by-path:/dev/dri/by-path:ro \
+  --ipc host --shm-size 16g -p 8000:8000 \
   -v ~/.cache/huggingface:/root/.cache/huggingface -v /path/to/models:/models \
   -e MODEL=CySpiegel/Qwen3.8-27B-Int4-AutoRound \
   cyspiegel/vllm-xpu-b70:latest

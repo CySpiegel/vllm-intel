@@ -6,7 +6,8 @@ services:
     image: ${VLLM_B70_IMAGE:-cyspiegel/vllm-xpu-b70:latest}
     container_name: vllm-b70
     restart: unless-stopped
-    privileged: true                 # oneCCL pidfd IPC exchange (set in-image) needs ptrace rights
+    # No --privileged / extra caps: oneCCL falls back to its drmfd IPC exchange, which only
+    # needs /dev/dri/by-path visible (mounted read-only below).
     ipc: host
     shm_size: "16g"
     devices:
@@ -14,6 +15,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - /dev/dri/by-path:/dev/dri/by-path:ro   # device lookup for the oneCCL drmfd exchange
       - /home/spiegel/models:/models
       - /home/spiegel/.cache/huggingface:/root/.cache/huggingface
       - vllm-b70-cache:/root/.cache/vllm      # torch.compile / AOT cache (~1 min per cold start)
@@ -24,7 +26,8 @@ services:
       # exists, else CySpiegel/Qwen3.8-27B-Int4-AutoRound (HF id, downloaded and
       # auto-converted to the gptq-config variant on first start).
       # The image already sets the validated env (FI_PROVIDER_PATH, TRITON arch,
-      # XPU graphs, CCL_ZE_IPC_EXCHANGE=pidfd); the entrypoint defaults FI_PROVIDER=tcp.
+      # XPU graphs, CCL_ZE_IPC_EXCHANGE=pidfd — unprivileged containers fall back to drmfd);
+      # the entrypoint defaults FI_PROVIDER=tcp.
       # Do NOT carry over the stock intel/vllm CCL_*/ZE_* block: in particular
       # CCL_ENABLE_SYCL_KERNELS=0 selects oneCCL "sched" all-reduce, which cannot
       # be recorded into XPU graphs and aborts graph capture on this stack.

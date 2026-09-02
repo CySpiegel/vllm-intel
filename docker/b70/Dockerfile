@@ -27,8 +27,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Validated serving environment (bare-metal recipe, see docker/b70/README.md).
 # oneCCL's libfabric providers ship inside the torch/oneccl wheels under /opt/venv/lib.
-# CCL_ZE_IPC_EXCHANGE=pidfd: oneCCL's default drmfd exchange scans /dev/dri/by-path,
-# which containers do not have; pidfd needs ptrace rights (run --privileged).
+# CCL_ZE_IPC_EXCHANGE=pidfd: used when the container has CAP_SYS_PTRACE; under docker's
+# default seccomp profile oneCCL falls back to drmfd, which needs /dev/dri/by-path
+# bind-mounted (see docker-compose.yaml). No --privileged required either way.
 # Do NOT set CCL_ENABLE_SYCL_KERNELS=0 (stock intel/vllm compose): it selects an
 # all-reduce that cannot be recorded into XPU graphs and aborts graph capture.
 # VLLM_USE_V2_MODEL_RUNNER=0: the XPU stack is validated on the V1 model runner;
