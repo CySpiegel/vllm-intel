@@ -5,10 +5,11 @@ Serving stack for 2x Intel Arc B70 (Battlemage, 32 GB each), built from
 [CySpiegel/vllm-xpu-kernels](https://github.com/CySpiegel/vllm-xpu-kernels).
 Not an official vLLM or Intel image.
 
-Image: `cyspiegel/vllm-xpu-b70` — tags `latest` == `2026-08-27-47711e6` (vLLM fork
-main 47711e60e2 = upstream main ca90b9e7d 2026-08-27 + our patches, including the two fixes
-also submitted upstream as #53996 and #53997; kernels wheel vllm-xpu-kernels
-0.1.14.dev10+g3b2c7e6). Previous tag `2026-08-27-a1c981a` stays available. On 2x Arc Pro B70, Qwen3.8-27B (INT4 + MTP)
+Image: `cyspiegel/vllm-xpu-b70` — tags `latest` == `2026-09-02-680f1e9` (vLLM fork
+main 680f1e9a2c: same vLLM code as 47711e60e2 = upstream main ca90b9e7d 2026-08-27 + our
+patches, including the two fixes also submitted upstream as #53996 and #53997; kernels wheel
+vllm-xpu-kernels 0.1.14.dev10+g3b2c7e6; entrypoint now defaults prefix caching ON and the
+image runs unprivileged). Previous tags `2026-08-27-47711e6` and `2026-08-27-a1c981a` stay available. On 2x Arc Pro B70, Qwen3.8-27B (INT4 + MTP)
 runs at 57 tok/s single-stream / 203 tok/s batched inside this image vs 16 / 77 on the
 stock `intel/vllm:0.21.0` image with the same INT4 weights (3.5x / 2.6x); Gemma 4 31B
 INT4 at 33 / 148 vs 11 / ~30 (3x / ~5x). The container is within 2-5% of bare metal on the
